@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Outlook Live Inbox Manager</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            background-color: #0E1621; 
+            color: #FFFFFF; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            padding: 15px; 
+            margin: 0; 
+        }
+        h3 { color: #4EA4F3; margin-top: 0; }
+        .sub-text { font-size: 11px; color: #AAA; margin-bottom: 8px; }
+        textarea { 
+            width: 100%; 
+            height: 90px; 
+            background: #18222D; 
+            color: #FFF; 
+            border: 2px solid #2B5278; 
+            border-radius: 8px; 
+            padding: 10px; 
+            font-size: 12px; 
+            resize: vertical;
+        }
+        .btn-group { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+        button { 
+            flex: 1;
+            min-width: 110px;
+            color: #FFF; 
+            border: none; 
+            padding: 10px 12px; 
+            border-radius: 6px; 
+            font-weight: bold; 
+            cursor: pointer; 
+            font-size: 13px;
+        }
+        .btn-start { background: #0F9D58; }
+        .btn-stop { background: #D93025; }
+        .btn-clear { background: #3B4A5A; }
+
+        .account-card { 
+            background: #18222D; 
+            border: 1px solid #2B5278; 
+            border-radius: 10px; 
+            padding: 12px; 
+            margin-top: 12px; 
+        }
+        .account-header { 
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #2B5278;
+            gap: 5px;
+        }
+        .email-text { 
+            font-weight: bold; 
+            color: #FFD54F; 
+            font-size: 12px; 
+            word-break: break-all;
+            flex-grow: 1;
+        }
+        .action-btns {
+            display: flex;
+            gap: 5px;
+            white-space: nowrap;
+        }
+        .email-copy-btn {
+            background: #2B5278;
+            color: #FFF;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .email-copy-btn:hover { background: #3B6A9A; }
+
+        .email-delete-btn {
+            background: #D93025;
+            color: #FFF;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .email-delete-btn:hover { background: #b02319; }
+        
+        .msg-list-container {
+            margin-top: 8px;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        .msg-box {
+            background: #0E1621;
+            border: 1px solid #243547;
+            border-radius: 6px;
+            padding: 8px 10px;
+            margin-top: 6px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .msg-box:hover {
+            border-color: #0F9D58;
+            background: #121D2B;
+        }
+        .msg-box.new-otp {
+            background: #1b362c;
+            border-color: #0F9D58;
+        }
+        .badge-new {
+            background: #FF5722;
+            color: #FFF;
+            font-size: 9px;
+            padding: 1px 5px;
+            border-radius: 4px;
+            margin-left: 5px;
+            font-weight: bold;
+        }
+
+        #toast {
+            visibility: hidden;
+            min-width: 200px;
+            background-color: #0F9D58;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 10px;
+            position: fixed;
+            z-index: 9999;
+            left: 50%;
+            bottom: 30px;
+            transform: translateX(-50%);
+            font-size: 13px;
+            font-weight: bold;
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
+        }
+        #toast.show {
+            visibility: visible;
+            animation: fadeInOut 2s ease-in-out;
+        }
+        @keyframes fadeInOut {
+            0% { opacity: 0; bottom: 15px; }
+            20% { opacity: 1; bottom: 30px; }
+            80% { opacity: 1; bottom: 30px; }
+            100% { opacity: 0; bottom: 15px; }
+        }
+    </style>
+</head>
+<body>
+
+    <h3>📬 Outlook Live Inbox Manager</h3>
+    <p class="sub-text">ফরম্যাট (প্রতি লাইনে একটি): email|pass|refresh_token|client_id</p>
+    
+    <textarea id="accountInput" placeholder="এখানে একসাথে একাধিক অ্যাকাউন্ট পেস্ট করুন..." oninput="saveInputToLocal()"></textarea>
+    
+    <div class="btn-group">
+        <button class="btn-start" onclick="startLiveMonitoring()">🚀 Start</button>
+        <button class="btn-stop" onclick="stopMonitoring()">⏹ Stop</button>
+        <button class="btn-clear" onclick="confirmClear()">🗑 Clear All</button>
+    </div>
+
+    <div id="statusHeader" style="margin-top: 12px; font-weight: bold; color: #4EA4F3; font-size: 12px;"></div>
+    <div id="resultContainer"></div>
+
+    <div id="toast">OTP কপি করা হয়েছে!</div>
+
+    <script>
+        let timerId = null;
+        let accountMessagesStore = {}; 
+        let sessionStartTime = null; 
+
+        window.onload = function() {
+            let savedData = localStorage.getItem("outlook_accounts_input");
+            if (savedData) {
+                document.getElementById('accountInput').value = savedData;
+            }
+
+            let savedStartTime = localStorage.getItem("outlook_session_start_time");
+            let isMonitoringActive = localStorage.getItem("outlook_monitoring_active");
+
+            if (isMonitoringActive === "true" && savedData) {
+                if (savedStartTime) {
+                    sessionStartTime = new Date(savedStartTime);
+                } else {
+                    sessionStartTime = new Date();
+                }
+                startLiveMonitoring(true);
+            }
+        };
+
+        function saveInputToLocal() {
+            let inputData = document.getElementById('accountInput').value;
+            // ইনপুট খালি থাকলে লোকালস্টোরেজ থেকে রিমুভ করে দেব
+            if(inputData.trim() === "") {
+                localStorage.removeItem("outlook_accounts_input");
+            } else {
+                localStorage.setItem("outlook_accounts_input", inputData);
+            }
+        }
+
+        // ক্লিয়ার করার আগে কনফার্মেশন পপ-আপ মেসেজ
+        function confirmClear() {
+            let confirmAction = confirm("আপনি কি নিশ্চিতভাবে সমস্ত ডাটা এবং অ্যাকাউন্টগুলো মুছে ফেলতে চান?");
+            if (confirmAction) {
+                clearInput();
+            }
+        }
+
+        function clearInput() {
+            // সমস্ত মনিটরিং এবং লোকালস্টোরেজ সম্পূর্ণরূপে মুছে ফেলা হচ্ছে
+            stopMonitoring();
+            
+            document.getElementById('accountInput').value = '';
+            document.getElementById('resultContainer').innerHTML = '';
+            document.getElementById('statusHeader').innerHTML = '';
+            
+            localStorage.removeItem("outlook_accounts_input");
+            localStorage.removeItem("outlook_monitoring_active");
+            localStorage.removeItem("outlook_session_start_time");
+            
+            accountMessagesStore = {};
+            sessionStartTime = null;
+            showToast("সমস্ত ডাটা সফলভাবে মুছে ফেলা হয়েছে!");
+        }
+
+        function stopMonitoring() {
+            if (timerId) {
+                clearInterval(timerId);
+                timerId = null;
+            }
+            localStorage.setItem("outlook_monitoring_active", "false");
+            document.getElementById('statusHeader').innerHTML = "<span style='color: #FF8A65;'>⏸️ মনিটরিং বন্ধ আছে।</span>";
+        }
+
+        function startLiveMonitoring(isAutoResume = false) {
+            let inputData = document.getElementById('accountInput').value.trim();
+            if (!inputData) {
+                if (!isAutoResume) alert("দয়া করে অন্তত একটি অ্যাকাউন্ট ইনপুট দিন!");
+                return;
+            }
+
+            saveInputToLocal();
+            localStorage.setItem("outlook_monitoring_active", "true");
+
+            if (!sessionStartTime) {
+                sessionStartTime = new Date();
+                localStorage.setItem("outlook_session_start_time", sessionStartTime.toISOString());
+            }
+
+            if (timerId) clearInterval(timerId);
+
+            fetchInboxData();
+            timerId = setInterval(fetchInboxData, 10000); 
+        }
+
+        async function fetchInboxData() {
+            let inputData = document.getElementById('accountInput').value.trim();
+            // যদি ইনপুট খালি থাকে বা মনিটরিং বন্ধ থাকে তবে রিকোয়েস্ট পাঠানো বন্ধ রাখবে
+            if (!inputData || localStorage.getItem("outlook_monitoring_active") !== "true") {
+                return;
+            }
+
+            let lines = inputData.split('\n').filter(line => line.trim() !== '');
+            let container = document.getElementById('resultContainer');
+            let statusHeader = document.getElementById('statusHeader');
+
+            statusHeader.innerHTML = `🔄 লাইভ চেকিং রানিং... (অ্যাকাউন্ট: ${lines.length}) | ${new Date().toLocaleTimeString()}`;
+
+            for (let i = 0; i < lines.length; i++) {
+                let singleData = lines[i].trim();
+                let email = singleData.split('|')[0] || `Account #${i + 1}`;
+                let cardId = `card-${i}`;
+
+                if (!document.getElementById(cardId)) {
+                    if (!accountMessagesStore[email]) {
+                        accountMessagesStore[email] = new Set();
+                    }
+
+                    let cardHtml = `
+                        <div class="account-card" id="${cardId}">
+                            <div class="account-header">
+                                <span class="email-text">📧 ${email}</span>
+                                <div class="action-btns">
+                                    <button class="email-copy-btn" onclick="copyText('${email}')">📋 কপি</button>
+                                    <button class="email-delete-btn" onclick="deleteCard('${cardId}', '${email}')">🗑 ডিলিট</button>
+                                </div>
+                            </div>
+                            <div class="msg-list-container" id="msgs-${cardId}">
+                                <p style="font-size: 11px; color: #777; margin: 6px 0 0 0;">লোডিং...</p>
+                            </div>
+                        </div>
+                    `;
+                    container.insertAdjacentHTML('beforeend', cardHtml);
+                }
+
+                let msgListContainer = document.getElementById(`msgs-${cardId}`);
+                if (!msgListContainer) continue;
+
+                try {
+                    let response = await fetch("https://mailgen.shop/api/get-inbox", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            "data": singleData,
+                            "mode": "graph"
+                        })
+                    });
+
+                    let result = await response.json();
+                    if (result.error) continue;
+
+                    let messages = result.messages || [];
+
+                    messages.forEach(msg => {
+                        let otpCode = msg.code || '';
+                        let sender = msg.from || 'N/A';
+                        let subject = msg.subject || 'N/A';
+                        let msgDateStr = msg.date || '';
+                        
+                        let uniqueKey = `${sender}_${otpCode}`;
+
+                        if (otpCode && accountMessagesStore[email] && !accountMessagesStore[email].has(uniqueKey)) {
+                            accountMessagesStore[email].add(uniqueKey);
+
+                            if (msgListContainer.innerHTML.includes("লোডিং...") || msgListContainer.innerHTML.includes("কোনো ওটিপি পাওয়া যায়নি")) {
+                                msgListContainer.innerHTML = "";
+                            }
+
+                            let isNewMessage = false;
+                            if (msgDateStr && sessionStartTime) {
+                                let msgTime = new Date(msgDateStr);
+                                if (msgTime >= sessionStartTime) {
+                                    isNewMessage = true; 
+                                }
+                            }
+
+                            let msgBoxId = 'msg-' + Math.random().toString(36).substr(2, 9);
+                            let boxClass = isNewMessage ? "msg-box new-otp" : "msg-box";
+                            let badgeHtml = isNewMessage ? `<span class="badge-new">NEW</span>` : ``;
+
+                            let itemHtml = `
+                                <div class="${boxClass}" id="${msgBoxId}" onclick="copyOtpAndNormal('${otpCode}', '${msgBoxId}')" title="ক্লিক করে OTP কপি করুন">
+                                    <div style="font-size: 11px; color: #4EA4F3; font-weight: bold;">সোর্স: ${sender}</div>
+                                    <div style="font-size: 11px; color: #DDD; margin: 2px 0;">বিষয়: ${subject}</div>
+                                    <div style="font-size: 12px; color: #0F9D58; font-weight: bold;">
+                                        🔑 OTP: ${otpCode} ${badgeHtml} <span style="font-size: 10px; color: #888; font-weight: normal;">(ক্লিক করে কপি করুন)</span>
+                                    </div>
+                                </div>
+                            `;
+                            msgListContainer.insertAdjacentHTML('afterbegin', itemHtml);
+                        }
+                    });
+
+                    if (msgListContainer.children.length === 0 || msgListContainer.innerHTML.trim() === "") {
+                        msgListContainer.innerHTML = `<p style="font-size: 11px; color: #777; margin: 6px 0 0 0;">কোনো ওটিপি পাওয়া যায়নি...</p>`;
+                    }
+
+                } catch (err) {
+                    console.error("API Error:", err);
+                }
+            }
+        }
+
+        function showToast(message) {
+            let toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.className = "show";
+            setTimeout(function() { 
+                toast.className = toast.className.replace("show", ""); 
+            }, 2000);
+        }
+
+        function copyOtpAndNormal(otpCode, boxId) {
+            navigator.clipboard.writeText(otpCode).then(() => {
+                let boxElement = document.getElementById(boxId);
+                if (boxElement) {
+                    boxElement.classList.remove('new-otp'); 
+                    let badge = boxElement.querySelector('.badge-new');
+                    if (badge) badge.remove(); 
+                }
+                showToast("OTP কপি করা হয়েছে: " + otpCode);
+            }).catch(err => {
+                console.error('Copy failed: ', err);
+            });
+        }
+
+        function deleteCard(cardId, email) {
+            let card = document.getElementById(cardId);
+            if (card) card.remove();
+            delete accountMessagesStore[email];
+
+            let textarea = document.getElementById('accountInput');
+            let lines = textarea.value.split('\n');
+            let filteredLines = lines.filter(line => !line.trim().startsWith(email));
+            textarea.value = filteredLines.join('\n');
+            saveInputToLocal();
+        }
+
+        function copyText(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast("কপি করা হয়েছে: " + text);
+            }).catch(err => {
+                console.error('Copy failed: ', err);
+            });
+        }
+    </script>
+</body>
+</html>
